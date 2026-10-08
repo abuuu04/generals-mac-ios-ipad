@@ -1,0 +1,54 @@
+
+name: Compile Generals for iPhone
+
+on:
+  workflow_dispatch:
+
+jobs:
+  compile:
+    runs-on: macos-latest
+    timeout-minutes: 180
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install tools
+        run: |
+          brew install cmake ninja meson pkgconf xcodegen
+
+      - name: Install vcpkg
+        run: |
+          git clone https://github.com/microsoft/vcpkg.git "$HOME/vcpkg"
+          "$HOME/vcpkg/bootstrap-vcpkg.sh"
+          echo "VCPKG_ROOT=$HOME/vcpkg" >> "$GITHUB_ENV"
+
+      - name: Prepare iOS resources
+        run: |
+          bash scripts/build/ios/fetch-moltenvk.sh
+          bash scripts/build/ios/stage-fonts.sh
+
+      - name: Configure Vulkan SDK
+        run: |
+          MVK="$HOME/GeneralsX/MoltenVK/MoltenVK/MoltenVK"
+          echo "VULKAN_SDK=$MVK" >> "$GITHUB_ENV"
+          find "$MVK" -name "libMoltenVK.a" -print
+          find "$MVK" -name "vulkan.h" -print
+
+      - name: Configure iOS build
+        run: |
+          cmake --preset ios-vulkan
+
+      - name: Compile engine
+        run: |
+          cmake --build build/ios-vulkan \
+            --target z_generals --parallel 3
+
+      - name: Save compiled files
+        uses: actions/upload-artifact@v4
+        with:
+          name: generals-ios-engine
+          path: build/ios-vulkan/GeneralsMD/
+          retention-days: 7
