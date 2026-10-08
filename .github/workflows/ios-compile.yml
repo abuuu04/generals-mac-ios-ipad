@@ -32,10 +32,32 @@ jobs:
 
       - name: Configure Vulkan SDK
         run: |
+          set -euo pipefail
+
           MVK="$HOME/GeneralsX/MoltenVK/MoltenVK/MoltenVK"
           echo "VULKAN_SDK=$MVK" >> "$GITHUB_ENV"
+
+          echo "Searching for static MoltenVK..."
           find "$MVK" -name "libMoltenVK.a" -print
-          find "$MVK" -name "vulkan.h" -print
+
+          STATIC_LIB=$(find "$MVK" -type f \
+            -name "libMoltenVK.a" -print -quit)
+
+          if [ -z "$STATIC_LIB" ]; then
+            echo "::error::Static libMoltenVK.a not found"
+            echo "A compatible iOS static MoltenVK build is required."
+            exit 1
+          fi
+
+          TARGET="$MVK/lib/MoltenVK.xcframework/ios-arm64"
+          mkdir -p "$TARGET"
+
+          if [ "$STATIC_LIB" != "$TARGET/libMoltenVK.a" ]; then
+            cp "$STATIC_LIB" "$TARGET/libMoltenVK.a"
+          fi
+
+          test -s "$TARGET/libMoltenVK.a"
+          echo "Static MoltenVK is ready."
 
       - name: Configure iOS build
         run: |
@@ -47,8 +69,10 @@ jobs:
             --target z_generals --parallel 3
 
       - name: Save compiled files
+        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: generals-ios-engine
           path: build/ios-vulkan/GeneralsMD/
+          if-no-files-found: error
           retention-days: 7
