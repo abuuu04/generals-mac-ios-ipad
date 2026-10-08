@@ -1,0 +1,39 @@
+
+name: Generals iOS Build Preparation
+
+on:
+  workflow_dispatch:
+
+jobs:
+  prepare-ios:
+    runs-on: macos-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install tools
+        run: |
+          brew install ninja meson pkgconf xcodegen
+
+      - name: Setup vcpkg
+        run: |
+          git clone https://github.com/microsoft/vcpkg.git "$HOME/vcpkg"
+          "$HOME/vcpkg/bootstrap-vcpkg.sh"
+
+      - name: Fetch MoltenVK
+        run: |
+          bash scripts/build/ios/fetch-moltenvk.sh
+
+      - name: Stage fonts
+        run: |
+          bash scripts/build/ios/stage-fonts.sh
+
+      - name: Verify iOS preset
+        run: |
+          cmake --list-presets
+          xcodebuild -version
+          echo "iOS preparation completed"
