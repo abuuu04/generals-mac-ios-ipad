@@ -17,16 +17,23 @@ jobs:
 
       - name: Install tools
         run: |
-          brew install cmake ninja meson pkgconf xcodegen
+          set -e
+          brew install cmake ninja meson pkgconf xcodegen glslang
+
+          echo "Checking glslangValidator..."
+          command -v glslangValidator
+          glslangValidator --version
 
       - name: Install vcpkg
         run: |
+          set -e
           git clone https://github.com/microsoft/vcpkg.git "$HOME/vcpkg"
           "$HOME/vcpkg/bootstrap-vcpkg.sh"
           echo "VCPKG_ROOT=$HOME/vcpkg" >> "$GITHUB_ENV"
 
       - name: Prepare iOS resources
         run: |
+          set -e
           bash scripts/build/ios/fetch-moltenvk.sh
           bash scripts/build/ios/stage-fonts.sh
 
@@ -45,7 +52,6 @@ jobs:
 
           if [ -z "$STATIC_LIB" ]; then
             echo "::error::Static libMoltenVK.a not found"
-            echo "A compatible iOS static MoltenVK build is required."
             exit 1
           fi
 
@@ -61,10 +67,22 @@ jobs:
 
       - name: Configure iOS build
         run: |
+          set -e
           cmake --preset ios-vulkan
+
+      - name: Verify build dependencies
+        run: |
+          set -e
+          echo "Checking required build tools..."
+          command -v cmake
+          command -v ninja
+          command -v meson
+          command -v glslangValidator
+          command -v clang
 
       - name: Compile engine
         run: |
+          set -e
           cmake --build build/ios-vulkan \
             --target z_generals --parallel 3
 
