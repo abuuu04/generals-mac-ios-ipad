@@ -86,6 +86,42 @@ jobs:
           cmake --build build/ios-vulkan \
             --target z_generals --parallel 3
 
+      - name: Create unsigned iPhone IPA
+        run: |
+          set -euo pipefail
+
+          APP="build/ios-vulkan/GeneralsMD/GeneralsXZH.app"
+
+          echo "Checking iOS application..."
+
+          if [ ! -d "$APP" ]; then
+            echo "::error::GeneralsXZH.app not found"
+            find build/ios-vulkan -name "*.app" -print
+            exit 1
+          fi
+
+          echo "Creating IPA structure..."
+
+          mkdir -p output/Payload
+          cp -R "$APP" output/Payload/
+
+          cd output
+
+          /usr/bin/zip -qry GeneralsXZH.ipa Payload
+
+          test -s GeneralsXZH.ipa
+
+          echo "IPA created successfully!"
+          ls -lh GeneralsXZH.ipa
+
+      - name: Upload iPhone IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: GeneralsXZH-iPhone-IPA
+          path: output/GeneralsXZH.ipa
+          if-no-files-found: error
+          retention-days: 7
+
       - name: Save compiled files
         if: success()
         uses: actions/upload-artifact@v4
