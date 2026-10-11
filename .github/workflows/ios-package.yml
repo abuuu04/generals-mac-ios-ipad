@@ -1,0 +1,26 @@
+name: Generals iOS Package Check
+
+on:
+  workflow_dispatch:
+
+jobs:
+  package-check:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Check packaging prerequisites
+        shell: bash
+        run: |
+          set -e
+          echo "Checking iOS packaging files..."
+          test -f scripts/build/ios/package-ios-zh.sh
+          test -f ios/config/Options.ini
+          test -f ios/config/dxvk.conf
+          echo "Packaging script and config files found."
+          echo "This workflow does not generate a signed IPA."
+
+      - name: Show packaging script
+        run: |
+          sed -n '1,180p' scripts/build/ios/package-ios-zh.sh
