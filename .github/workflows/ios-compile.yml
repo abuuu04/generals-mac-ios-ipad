@@ -20,7 +20,6 @@ jobs:
           set -e
           brew install cmake ninja meson pkgconf xcodegen glslang
 
-          echo "Checking glslangValidator..."
           command -v glslangValidator
           glslangValidator --version
 
@@ -44,14 +43,11 @@ jobs:
           MVK="$HOME/GeneralsX/MoltenVK/MoltenVK/MoltenVK"
           echo "VULKAN_SDK=$MVK" >> "$GITHUB_ENV"
 
-          echo "Searching for static MoltenVK..."
-          find "$MVK" -name "libMoltenVK.a" -print
-
           STATIC_LIB=$(find "$MVK" -type f \
             -name "libMoltenVK.a" -print -quit)
 
           if [ -z "$STATIC_LIB" ]; then
-            echo "::error::Static libMoltenVK.a not found"
+            echo "::error::Static MoltenVK not found"
             exit 1
           fi
 
@@ -63,7 +59,7 @@ jobs:
           fi
 
           test -s "$TARGET/libMoltenVK.a"
-          echo "Static MoltenVK is ready."
+          echo "Static MoltenVK ready"
 
       - name: Configure iOS build
         run: |
@@ -73,7 +69,6 @@ jobs:
       - name: Verify build dependencies
         run: |
           set -e
-          echo "Checking required build tools..."
           command -v cmake
           command -v ninja
           command -v meson
@@ -86,33 +81,107 @@ jobs:
           cmake --build build/ios-vulkan \
             --target z_generals --parallel 3
 
-      - name: Create unsigned iPhone IPA
+      - name: Package iOS libraries and IPA
         run: |
           set -euo pipefail
 
-          APP="build/ios-vulkan/GeneralsMD/GeneralsXZH.app"
+          BUILD="build/ios-vulkan"
+          APP="$BUILD/GeneralsMD/GeneralsXZH.app"
+          DEST="output/Payload/GeneralsXZH.app"
 
-          echo "Checking iOS application..."
-
-          if [ ! -d "$APP" ]; then
+          echo "Checking application..."
+          test -d "$APP" || {
             echo "::error::GeneralsXZH.app not found"
-            find build/ios-vulkan -name "*.app" -print
+            find "$BUILD" -name "*.app" -print
+            exit 1
+          }
+
+          mkdir -p output/Payload
+          cp -R "$APP" "$DEST"
+          mkdir -p "$DEST/Frameworks"
+
+          echo "Finding SDL libraries..."
+
+          find "$BUILD" -type f \
+            \( -name "libSDL3*.dylib" \
+            -o -name "libopenal*.dylib" \
+            -o -name "libdxvk*.dylib" \) \
+            -print
+
+          copy_library() {
+            local pattern="$1"
+            local file
+
+            file=$(find "$BUILD" -type f \
+              -name "$pattern" -print -quit)
+
+            if [ -z "$file" ]; then
+              echo "::warning::Library not found: $pattern"
+              return 0
+            fi
+
+            echo "Copying $file"
+            cp -L "$file" "$DEST/Frameworks/"
+          }
+
+          copy_library "libSDL3.0.dylib"
+          copy_library "libSDL3_image.0.dylib"
+          copy_library "libopenal*.dylib"
+          copy_library "libdxvk*.dylib"
+
+          echo "Checking critical SDL image library..."
+
+          if [ ! -f "$DEST/Frameworks/libSDL3_image.0.dylib" ]; then
+            echo "::error::libSDL3_image.0.dylib missing"
             exit 1
           fi
 
-          echo "Creating IPA structure..."
+          echo "Fixing library paths..."
 
-          mkdir -p output/Payload
-          cp -R "$APP" output/Payload/
+          install_name_tool -add_rpath \
+            "@executable_path/Frameworks" \
+            "$DEST/GeneralsXZH" || true
+
+          for dylib in "$DEST/Frameworks/"*.dylib; do
+            [ -f "$dylib" ] || continue
+
+            name=$(basename "$dylib")
+
+            install_name_tool -id \
+              "@rpath/$name" "$dylib" || true
+          done
+
+          echo "Fixing executable dependencies..."
+
+          otool -L "$DEST/GeneralsXZH"
+
+          while IFS= read -r dependency; do
+            name=$(basename "$dependency")
+
+            if [ -f "$DEST/Frameworks/$name" ]; then
+              install_name_tool -change \
+                "$dependency" \
+                "@rpath/$name" \
+                "$DEST/GeneralsXZH"
+            fi
+          done < <(
+            otool -L "$DEST/GeneralsXZH" |
+            awk 'NR>1 {print $1}'
+          )
+
+          echo "Checking packaged dependencies..."
+
+          otool -L "$DEST/GeneralsXZH"
+
+          echo "Creating unsigned IPA..."
 
           cd output
-
           /usr/bin/zip -qry GeneralsXZH.ipa Payload
 
           test -s GeneralsXZH.ipa
-
-          echo "IPA created successfully!"
           ls -lh GeneralsXZH.ipa
+
+          echo "IPA packaging completed"
 
       - name: Upload iPhone IPA
         uses: actions/upload-artifact@v4
