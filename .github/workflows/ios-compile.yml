@@ -62,7 +62,7 @@ jobs:
 
       - name: Configure iOS build
         run: |
-          set -e
+          set -euo pipefail
           cmake --preset ios-vulkan
 
       - name: Verify build dependencies
@@ -76,7 +76,7 @@ jobs:
 
       - name: Compile engine
         run: |
-          set -e
+          set -euo pipefail
           cmake --build build/ios-vulkan \
             --target z_generals --parallel 3
 
@@ -91,6 +91,7 @@ jobs:
           FRAMEWORKS="$DEST/Frameworks"
 
           echo "Checking application..."
+
           test -d "$APP"
           test -f "$APP/GeneralsXZH"
 
@@ -98,8 +99,10 @@ jobs:
           cp -R "$APP" "$DEST"
           mkdir -p "$FRAMEWORKS"
 
-          echo "Finding libraries..."
-          find "$BUILD/_deps" -type f \
+          echo "Finding available libraries..."
+
+          find "$BUILD" \
+            \( -type f -o -type l \) \
             -name "*.dylib" -print
 
           copy_library() {
@@ -108,7 +111,7 @@ jobs:
             local file
             local name
 
-            file=$(find "$BUILD/_deps" \
+            file=$(find "$BUILD" \
               \( -type f -o -type l \) \
               -name "$pattern" -print -quit)
 
@@ -118,7 +121,7 @@ jobs:
                 exit 1
               fi
               echo "::warning::Optional library missing: $pattern"
-              return
+              return 0
             fi
 
             name=$(basename "$file")
@@ -126,16 +129,19 @@ jobs:
             cp -L "$file" "$FRAMEWORKS/$name"
           }
 
+          echo "Copying SDL and other libraries..."
+
           copy_library "libSDL3.0*.dylib" yes
           copy_library "libSDL3_image.0*.dylib" yes
-          copy_library "libopenal*.dylib" no
+          copy_library "libopenal*.dylib" yes
           copy_library "libdxvk_d3d9*.dylib" no
           copy_library "libdxvk_d3d8*.dylib" no
 
           echo "Creating SDL compatibility names..."
 
-          SDL_IMAGE=$(find "$FRAMEWORKS" -maxdepth 1 \
-            -type f -name "libSDL3_image.0*.dylib" \
+          SDL_IMAGE=$(find "$FRAMEWORKS" \
+            -maxdepth 1 -type f \
+            -name "libSDL3_image.0*.dylib" \
             -print -quit)
 
           test -n "$SDL_IMAGE"
@@ -145,12 +151,48 @@ jobs:
               "$FRAMEWORKS/libSDL3_image.0.dylib"
           fi
 
-          SDL=$(find "$FRAMEWORKS" -maxdepth 1 \
-            -type f -name "libSDL3.0*.dylib" \
+          SDL=$(find "$FRAMEWORKS" \
+            -maxdepth 1 -type f \
+            -name "libSDL3.0*.dylib" \
             -print -quit)
+
+          test -n "$SDL"
 
           if [ ! -f "$FRAMEWORKS/libSDL3.0.dylib" ]; then
             cp "$SDL" "$FRAMEWORKS/libSDL3.0.dylib"
+          fi
+
+          echo "Fixing OpenAL library name..."
+
+          OPENAL=$(find "$FRAMEWORKS" \
+            -maxdepth 1 -type f \
+            -name "libopenal*.dylib" \
+            -print -quit)
+
+          test -n "$OPENAL"
+
+          if [ ! -f "$FRAMEWORKS/libopenal.1.dylib" ]; then
+            cp "$OPENAL" \
+              "$FRAMEWORKS/libopenal.1.dylib"
+          fi
+
+          echo "Searching for GameSpy..."
+
+          find "$BUILD" \
+            \( -type f -o -type l \) \
+            -iname "*gamespy*" -print
+
+          GAMESPY=$(find "$BUILD" \
+            \( -type f -o -type l \) \
+            -name "libgamespy.dylib" \
+            -print -quit)
+
+          if [ -n "$GAMESPY" ]; then
+            cp -L "$GAMESPY" \
+              "$FRAMEWORKS/libgamespy.dylib"
+            echo "GameSpy library copied"
+          else
+            echo "::warning::GameSpy dylib not found"
           fi
 
           echo "Fixing library identifiers..."
@@ -166,14 +208,15 @@ jobs:
 
           echo "Adding executable rpath..."
 
-          if ! otool -l "$DEST/GeneralsXZH" |
+          if ! otool -l "$DEST/GeneralsXZH" | \
             grep -q '@executable_path/Frameworks'; then
+
             install_name_tool -add_rpath \
               "@executable_path/Frameworks" \
               "$DEST/GeneralsXZH"
           fi
 
-          echo "Fixing all bundled dependencies..."
+          echo "Fixing bundled dependencies..."
 
           fix_dependencies() {
             local binary="$1"
@@ -204,7 +247,7 @@ jobs:
             fix_dependencies "$dylib"
           done
 
-          echo "Checking architecture and platform..."
+          echo "Checking architecture..."
 
           file "$DEST/GeneralsXZH"
           otool -L "$DEST/GeneralsXZH"
@@ -225,6 +268,7 @@ jobs:
 
           app = "output/Payload/GeneralsXZH.app"
           frameworks = os.path.join(app, "Frameworks")
+
           binaries = [os.path.join(app, "GeneralsXZH")]
 
           binaries += [
